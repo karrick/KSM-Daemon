@@ -11,9 +11,24 @@ WriteMakefile(
       ? ('LICENSE'=> 'perl')
       : ()),
     PL_FILES            => {},
-    PREREQ_PM => {
+    BUILD_REQUIRES => {
+	'Test::Class' => 0,
         'Test::More' => 0,
+    },
+    PREREQ_PM => {
+	# 'KSM::Logger' => 0,
     },
     dist                => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
     clean               => { FILES => 'KSM-Daemon-*' },
 );
+
+sub MY::postamble {
+    my $postamble = <<'MAKE_FRAG';
+.PHONY: rpm
+
+rpm:	test dist
+	cpan2rpm --no-sign $(DISTVNAME).tar.$(SUFFIX)
+MAKE_FRAG
+
+    return $postamble;
+}
