@@ -13,11 +13,11 @@ KSM::Daemon - The great new KSM::Daemon!
 
 =head1 VERSION
 
-Version 0.01
+Version 0.02
 
 =cut
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 
 =head1 SYNOPSIS
@@ -120,7 +120,7 @@ sub REAPER {
             spawn_child($child) if $respawn;
 	} else {
 	    warn sprintf("reaped unknown child: %d", $pid);
-	    # FIXME: this child's pid is left in $children, and
+	    # NOTE: this child's pid is left in $children, and
 	    # relaying signals would attempt to send a non-child the
 	    # signal.
 	}
@@ -279,6 +279,10 @@ standard output and standard error to pipes monitored by the
 sub spawn_child {
     my ($child) = @_;
 
+    my $signal_received;
+
+    local $SIG{USR2} = sub { verbose("received USR2"); $signal_received = 1; $SIG{USR2} = 'DEFAULT'; };
+
     if(my $pid = fork) {
         # parent: TODO: look at foo.pl on penguin to remember how we
         # don't have race conditions if child executes before this
@@ -286,18 +290,23 @@ sub spawn_child {
         $children->{$pid} = $child;
 	$child->{pid} = $pid;
 	$child->{started} = POSIX::strftime("%s", gmtime);
-        info('spawned child %d (%s)', $pid, $child->{name});
+        info('spawned child %d (%s) and signaling to continue', $pid, $child->{name});
+	kill('USR2',$pid);
     } elsif(defined $pid) {
-        # NOTE: child has no children
-        $children = {};
+        $children = {};		# child has no children yet
+        $0 = $child->{name};	# attempt to set name visible by ps(1)
+
 	foreach (qw(CHLD INT TERM)) {$SIG{$_} = 'DEFAULT';}
+	if(!$signal_received) {
+	    verbose('sleeping until parent wakes me');
+	    sleep; # until signal arrives
+	}
 
         open(STDOUT, '>&=', $stdout_write)
             or die sprintf("cannot redirect STDOUT: %s\n", $!);
         open(STDERR, '>&=', $stderr_write)
             or die sprintf("cannot redirect STDERR: %s\n", $!);
 
-        $0 = $child->{name}; # attempt to set name visible by ps(1)
         if(exists($child->{delay}) && $child->{delay}) {
             debug('snooze: %g seconds (%s)', $child->{delay}, $child->{name});
             sleep $child->{delay};

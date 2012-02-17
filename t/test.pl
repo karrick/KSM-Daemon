@@ -20,7 +20,7 @@ use KSM::Logger qw(debug verbose info warning error);
 
 ########################################
 
-KSM::Logger::initialize({filename_template => sprintf("%s/log/%s.%%F.%%s.log", 
+KSM::Logger::initialize({filename_template => sprintf("%s/log/%s.%%F.log", 
 						      POSIX::getcwd,
 						      File::Basename::basename($0)),
 			 level => KSM::Logger::DEBUG});
