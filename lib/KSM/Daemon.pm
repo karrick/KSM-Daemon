@@ -3,6 +3,7 @@ package KSM::Daemon;
 use warnings;
 use strict;
 use Carp;
+use File::Basename ();
 use POSIX ":sys_wait_h";
 use KSM::Logger qw(debug verbose info warning error);
 
@@ -22,20 +23,13 @@ our $VERSION = '0.01';
 =head1 SYNOPSIS
 
 The KSM::Daemon module performs daemon management and assists with
-logging for your perl programs.
+logging for your perl programs.  It works in conjunction with
+KSM::Logger.
 
 Perhaps a little code snippet.
 
-    use KSM::Daemon;
     use KSM::Logger qw(debug verbose info warning error);
-
-    KSM::Logger::filename_template("/var/log/Foo/foo.%F.log");
-    KSM::Logger::level(KSM::Logger::VERBOSE);
-    KSM::Logger::reformatter(sub {
-	my ($level,$line) = @_;
-        sprintf("%s: (pid %d) %s", $level, $$, $line);
-    });
-    info("Starting up my_program...");
+    use KSM::Daemon;
 
     sub greeting {
         foreach (@_) {
@@ -46,6 +40,11 @@ Perhaps a little code snippet.
     sub bar {
 	print STDERR "bar\n";
     }
+
+    KSM::Logger::initialize({filename_template => sprintf("%s/log/%s.%%F.%%s.log", 
+						          POSIX::getcwd,
+						          File::Basename::basename($0)),
+			     level => KSM::Logger::DEBUG});
 
     KSM::Daemon::daemonize(
       [{name => "greeter",
@@ -59,7 +58,8 @@ Perhaps a little code snippet.
         restart => 30,
         error => 60,
        }]);
-    die("my_daemon died");  # &daemonize should never return
+    # NOTE: daemonize will not return unless invocation error
+    exit(1);
     ...
 
 =head1 EXPORT
@@ -182,18 +182,20 @@ sub daemonize {
 	croak sprintf("no children processes specified");
     }
  
+    info("DAEMONIZING: %s", File::Basename::basename($0));
     daemonize_process();
     setup_signal_handlers();
 
     my ($stdout_read,$stderr_read);
     pipe($stdout_read, $stdout_write)
-	or die sprintf("unable to pipe: %s\n", $!);
+	or die error("unable to pipe: %s", $!);
     $stdout_write->autoflush(1);
 
     pipe($stderr_read, $stderr_write)
-	or die sprintf("unable to pipe: %s\n", $!);
+	or die error("unable to pipe: %s", $!);
     $stderr_write->autoflush(1);
 
+    info("SPAWNING CHILDREN");
     foreach (@$requested_children) {
 	spawn_child($_);
     }
@@ -210,13 +212,13 @@ guidance in 'man perlipc'.
 sub daemonize_process {
     chdir '/' or die sprintf('Cannot chdir(/): %s', $!);
 
-    open(STDIN,'/dev/null') or die sprintf('Cannot read from /dev/null: %s', $!);
-    open(STDOUT,'>/dev/null') or die sprintf('Cannot write to /dev/null: %s', $!);
+    open STDIN,'/dev/null' or die sprintf('Cannot read from /dev/null: %s', $!);
+    open STDOUT,'>/dev/null' or die sprintf('Cannot write to /dev/null: %s', $!);
 
     defined(my $pid = fork) or die sprintf('Cannot fork: %s', $!);
     exit if $pid;		# parent exits
-    POSIX::setsid() or die sprintf('Cannot start a new session: %s', $!);
-    open(STDERR,'>&STDOUT') or die sprintf('Cannot dup stdout: %s', $!);
+    POSIX::setsid or die sprintf('Cannot start a new session: %s', $!);
+    open STDERR,'>&STDOUT' or die sprintf('Cannot dup stdout: %s', $!);
 }
 
 =head2 setup_signal_handlers
@@ -228,6 +230,7 @@ signals.
 
 sub setup_signal_handlers {
     $SIG{CHLD} = \&REAPER;
+    $SIG{INT} = \&terminate_program;
     $SIG{TERM} = \&terminate_program;
     # $SIG{USR1} = \&toggle_debug_mode;
 }
@@ -244,8 +247,9 @@ it will exit itself.  It does not wait for its children to exit.
 =cut
 
 sub terminate_program {
+    my ($sig) = @_;
     $respawn = 0;
-    info("received TERM signal: preparing to shut down.");
+    info("received TERM/INT signal: preparing to shut down.");
     relay_signal_to_children('TERM');
 }
 
@@ -286,8 +290,7 @@ sub spawn_child {
     } elsif(defined $pid) {
         # NOTE: child has no children
         $children = {};
-
-	foreach (qw(CHLD TERM)) {$SIG{$_} = 'DEFAULT';}
+	foreach (qw(CHLD INT TERM)) {$SIG{$_} = 'DEFAULT';}
 
         open(STDOUT, '>&=', $stdout_write)
             or die sprintf("cannot redirect STDOUT: %s\n", $!);
@@ -328,6 +331,8 @@ mix buffered and unbuffered I/O.
 
 sub output_monitor {
     my ($stdout_read,$stderr_read) = @_;
+
+    info("MONITORING OUTPUT");
 
     my $rin = '';
     foreach ($stdout_read,$stderr_read) {

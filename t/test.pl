@@ -13,29 +13,25 @@ END { Test::Class->runtests }
 
 use File::Basename;
 use lib File::Basename::dirname(__FILE__) . "/../lib";
+use POSIX;
 
 use KSM::Daemon;
 use KSM::Logger qw(debug verbose info warning error);
 
 ########################################
 
-KSM::Logger::filename_template(sprintf("log/%s.%%F.log", __FILE__));
-KSM::Logger::level(KSM::Logger::DEBUG);
-KSM::Logger::reformatter(sub {
-    my ($level,$line) = @_;
-    sprintf("%s %s: (pid %d) %s",
- 	    POSIX::strftime("[%F %T %Z] %s", gmtime),
-	    $level, $$, $line);
-			 });
-info("Starting up %s", __FILE__);
-
+KSM::Logger::initialize({filename_template => sprintf("%s/log/%s.%%F.%%s.log", 
+						      POSIX::getcwd,
+						      File::Basename::basename($0)),
+			 level => KSM::Logger::DEBUG});
+			 
 sub greeting {
-    while(1) {
+    # while(1) {
 	foreach (@_) {
 	    print sprintf("Hello, %s!\n", $_);
 	}
 	sleep 10;
-    }
+    # }
 }
 
 sub bar {
@@ -59,4 +55,3 @@ KSM::Daemon::daemonize(
       error => 60,
      },
     ]);
-die("my_daemon died");  # &daemonize should never return
