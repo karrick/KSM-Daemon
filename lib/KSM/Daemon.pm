@@ -310,6 +310,20 @@ sub setup_signal_handlers {
     $SIG{TTOU}	= sub { send_signal_to_children('TTOU') };
 }
 
+=head2 reset_signal_handlers
+
+Resets all signal handlers to their default handlers.
+
+Used by newly spawned child processes.
+
+=cut
+
+sub reset_signal_handlers {
+    foreach (qw(HUP INT QUIT ILL ABRT FPE SEGV PIPE ALRM TERM USR1 USR2 CHLD CONT STOP TSTP TTIN TTOU)) {
+	$SIG{$_} = 'DEFAULT';
+    }
+}
+
 =head2 terminate_program
 
 Internal function that acts as the default handler for the TERM signal
@@ -396,16 +410,7 @@ standard output and standard error to pipes monitored by the
 sub spawn_child {
     my ($child) = @_;
 
-    if(defined($child->{signals})) {
-	if(ref($child->{signals}) ne 'ARRAY') {
-	    warning("child signals should be a reference to an array of signal name strings: %s", $child->{name});
-	    $child->{signals} = [];
-	}
-    } else {
-	$child->{signals} = [];
-    }
-
-    local $SIG{ALRM} = sub { verbose("received ALRM"); $SIG{ALRM} = 'DEFAULT'; };
+    local $SIG{ALRM} = sub { verbose("received ALRM") };
 
     if(my $pid = fork) {
         # parent: TODO: look at foo.pl on penguin to remember how we
@@ -418,16 +423,15 @@ sub spawn_child {
 	kill('ALRM',$pid);
     } elsif(defined $pid) {
 	sleep; # until signal arrives
+	reset_signal_handlers();
 
         $children = {};		# child has no children yet
         $0 = $child->{name};	# attempt to set name visible by ps(1)
 
-	foreach (qw(CHLD INT TERM)) {$SIG{$_} = 'DEFAULT';}
-
         open(STDOUT, '>&=', $stdout_write)
-            or die sprintf("cannot redirect STDOUT: %s\n", $!);
+            or die error("cannot redirect STDOUT: %s\n", $!);
         open(STDERR, '>&=', $stderr_write)
-            or die sprintf("cannot redirect STDERR: %s\n", $!);
+            or die error("cannot redirect STDERR: %s\n", $!);
 
         if(exists($child->{delay}) && $child->{delay}) {
             debug('snooze: %g seconds (%s)', $child->{delay}, $child->{name});
@@ -437,9 +441,7 @@ sub spawn_child {
 
         # execute child code, and exit with appropriate status code
 	eval { &{$child->{function}}(@{$child->{args}}) };
-	if($@) {
-	    exit 1;
-	}
+	exit 1 if($@);
         exit($? >> 8);
 
     } else {

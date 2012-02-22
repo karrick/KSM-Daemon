@@ -26,6 +26,8 @@ KSM::Logger::initialize({filename_template => sprintf("%s/log/%s.%%F.log",
 			 level => KSM::Logger::DEBUG});
 			 
 sub greeting {
+    local $SIG{ALRM} = sub { info("received ALRM signal") };
+
     while(1) {
 	foreach (@_) {
 	    print sprintf("Hello, %s!\n", $_);
@@ -35,6 +37,8 @@ sub greeting {
 }
 
 sub bar {
+    local $SIG{ALRM} = sub { info("received ALRM signal") };
+
     while(1) {
 	print STDERR "bar\n";
 	# exit 1 if(int(rand(10)) < 5);
@@ -54,6 +58,5 @@ KSM::Daemon::daemonize(
       function => \&bar,
       restart => 30,
       error => 60,
-      signals => "ALRM",
      },
     ]);
