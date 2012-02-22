@@ -57,6 +57,7 @@ Perhaps a little code snippet.
         function => \&bar,
         restart => 30,
         error => 60,
+        signals => ['HUP','USR1'],
        }]);
     # NOTE: daemonize will not return unless invocation error
     exit(1);
@@ -73,7 +74,7 @@ be included by importing the :all tag.  For example:
 
 use Exporter qw(import);
 our %EXPORT_TAGS = ( 'all' => [qw(
-
+	daemonize
 )]);
 our @EXPORT_OK = (@{$EXPORT_TAGS{'all'}});
 
@@ -176,12 +177,9 @@ respawn the child after the error delay.
 sub daemonize {
     my ($requested_children) = @_;
 
-    if(!defined($requested_children)
-       || ref($requested_children) ne 'ARRAY'
-       || scalar(@$requested_children) == 0) {
-	croak sprintf("no children processes specified");
-    }
- 
+    eval { verify_children($requested_children) };
+    if($@) { croak error("cannot daemonize: %s", $@) }
+
     info("DAEMONIZING: %s", File::Basename::basename($0));
     daemonize_process();
     setup_signal_handlers();
@@ -200,6 +198,66 @@ sub daemonize {
 	spawn_child($_);
     }
     output_monitor($stdout_read,$stderr_read);
+}
+
+=head2 verify_children
+
+Verify list of children process hashes is valid.
+
+Croaks if error during validation of children hashes.
+
+=cut
+
+sub verify_children {
+    my ($children) = @_;
+    
+    if(!defined($children) || ref($children) ne 'ARRAY') {
+	croak("children should be reference to array\n");
+    } elsif(scalar(@$children) == 0) {
+    	croak("children should have at least one child\n");
+    } else {
+    	verbose("VERIFYING CHILDREN");
+	map {
+    	    eval { verify_child($_) };
+    	    if($@) { croak sprintf("unable to verify children: %s", $@) }
+	} @$children;
+    }
+}
+
+=head2 verify_child
+
+Verify arguments valid and normalize arguments for a given child hash.
+
+Returns child hash if valid, and croaks if invalid parameters.
+
+=cut
+
+sub verify_child {
+    my ($child) = @_;
+
+    # croak if required arguments missing or invalid
+    if(!defined($child) || (ref($child) ne 'HASH')) {
+	croak("child should be reference to a hash\n");
+    } elsif(!defined($child->{name}) || ref($child->{name}) ne '') {
+	croak("child name should be string\n");
+    } elsif(!defined($child->{function}) || ref($child->{function}) ne 'CODE') {
+    	croak("child function should be a function\n");
+    } elsif(defined($child->{signals}) && ref($child->{signals}) ne 'ARRAY') {
+    	croak sprintf("child signals should be reference to array: %s", ref($child->{signals}));
+    } elsif(defined($child->{args}) && ref($child->{args}) ne 'ARRAY') {
+    	croak("child args should be reference to array\n");
+    } elsif(defined($child->{restart}) && ref($child->{restart}) ne '') {
+    	croak sprintf("child restart should be a scalar: %s\n", ref($child->{restart}));
+    } elsif(defined($child->{error}) && ref($child->{error}) ne '') {
+    	croak sprintf("child error should be a scalar: %s\n", ref($child->{error}));
+    }
+    
+    # set defaults for optional arguments
+    $child->{signals} = [] if(!defined($child->{signals}));
+    $child->{args} = [] if(!defined($child->{args}));
+    $child->{restart} = 0 if(!defined($child->{restart}));
+    $child->{error} = 0 if(!defined($child->{error}));
+    $child;
 }
 
 =head2 daemonize_process
@@ -229,10 +287,27 @@ signals.
 =cut
 
 sub setup_signal_handlers {
-    $SIG{CHLD} = \&REAPER;
-    $SIG{INT} = \&terminate_program;
-    $SIG{TERM} = \&terminate_program;
-    # $SIG{USR1} = \&toggle_debug_mode;
+    $SIG{HUP}	= sub { send_signal_to_children('HUP') };
+
+    $SIG{INT}	= sub { terminate_program('INT') };
+    $SIG{QUIT}	= sub { terminate_program('QUIT') };
+
+    $SIG{ILL}	= sub { terminate_program('ILL') };
+    $SIG{ABRT}	= sub { terminate_program('ABRT') };
+    $SIG{FPE}	= sub { terminate_program('FPE') };
+    $SIG{SEGV}	= sub { terminate_program('SEGV') };
+    $SIG{PIPE}	= sub { terminate_program('PIPE') };
+
+    $SIG{ALRM}	= sub { send_signal_to_children('ALRM') };
+    $SIG{TERM}	= sub { terminate_program('TERM') };
+    $SIG{USR1}	= sub { send_signal_to_children('USR1') };
+    $SIG{USR2}	= sub { send_signal_to_children('USR2') };
+    $SIG{CHLD}	= \&REAPER;
+    $SIG{CONT}	= sub { send_signal_to_children('CONT') };
+    $SIG{STOP}	= sub { send_signal_to_children('STOP') };
+    $SIG{TSTP}	= sub { send_signal_to_children('TSTP') };
+    $SIG{TTIN}	= sub { send_signal_to_children('TTIN') };
+    $SIG{TTOU}	= sub { send_signal_to_children('TTOU') };
 }
 
 =head2 terminate_program
@@ -249,22 +324,64 @@ it will exit itself.  It does not wait for its children to exit.
 sub terminate_program {
     my ($sig) = @_;
     $respawn = 0;
-    info("received TERM/INT signal: preparing to shut down.");
-    relay_signal_to_children('TERM');
+    info("received %s signal: preparing to shut down.", $sig);
+    send_signal_to_children('TERM');
 }
 
-=head2 relay_signal_to_children
+=head2 send_signal_to_children
 
 Internal function used to relay a signal to children processes.
 
 =cut
 
-sub relay_signal_to_children {
-    my ($sig) = @_;
+sub send_signal_to_children {
+    my ($signal) = @_;
     foreach my $pid (keys %$children) {
-        info('relaying %s signal to child %d (%s)',
-             $sig, $pid, $children->{$pid}->{name});
-        kill($sig, $pid);
+	maybe_relay_signal_to_child($signal, $children->{$pid})
+    }
+}
+
+=head2 maybe_relay_signal_to_child
+
+Relays a signal to child iff child requested it.
+
+=cut
+
+sub maybe_relay_signal_to_child {
+    my ($signal,$child) = @_;
+    if(relay_signal_to_child_p($signal, $child)) {
+	info('relaying %s signal to child %d (%s)', $signal, $child->{pid}, $child->{name});
+	kill($signal, $child->{pid});
+    } else {
+	info('not relaying %s signal to child %d (%s)', $signal, $child->{pid}, $child->{name});
+    }
+}
+
+=head2 relay_signal_to_child_p
+
+Returns 1 if ought to relay a signal to a child, and 0 otherwise.
+
+=cut
+
+sub relay_signal_to_child_p {
+    my ($signal,$child) = @_;
+    (($signal eq 'INT' || $signal eq 'TERM') || find($signal, $child->{signals}, sub {shift eq shift})) ? 1 : 0;
+}
+
+=head2 find
+
+Look for the first argument in the array of the second argument.
+
+=cut
+
+sub find {
+    my ($element,$list,$function) = @_;
+    if(defined($list) && ref($list) eq 'ARRAY') {
+	foreach (@$list) {
+	    return $element if(&{$function}($element, $_));
+	}
+    } else {
+	warning("second argument to find ought to be a list");
     }
 }
 
@@ -279,9 +396,16 @@ standard output and standard error to pipes monitored by the
 sub spawn_child {
     my ($child) = @_;
 
-    my $signal_received;
+    if(defined($child->{signals})) {
+	if(ref($child->{signals}) ne 'ARRAY') {
+	    warning("child signals should be a reference to an array of signal name strings: %s", $child->{name});
+	    $child->{signals} = [];
+	}
+    } else {
+	$child->{signals} = [];
+    }
 
-    local $SIG{USR2} = sub { verbose("received USR2"); $signal_received = 1; $SIG{USR2} = 'DEFAULT'; };
+    local $SIG{ALRM} = sub { verbose("received ALRM"); $SIG{ALRM} = 'DEFAULT'; };
 
     if(my $pid = fork) {
         # parent: TODO: look at foo.pl on penguin to remember how we
@@ -291,16 +415,14 @@ sub spawn_child {
 	$child->{pid} = $pid;
 	$child->{started} = POSIX::strftime("%s", gmtime);
         info('spawned child %d (%s) and signaling to continue', $pid, $child->{name});
-	kill('USR2',$pid);
+	kill('ALRM',$pid);
     } elsif(defined $pid) {
+	sleep; # until signal arrives
+
         $children = {};		# child has no children yet
         $0 = $child->{name};	# attempt to set name visible by ps(1)
 
 	foreach (qw(CHLD INT TERM)) {$SIG{$_} = 'DEFAULT';}
-	if(!$signal_received) {
-	    verbose('sleeping until parent wakes me');
-	    sleep; # until signal arrives
-	}
 
         open(STDOUT, '>&=', $stdout_write)
             or die sprintf("cannot redirect STDOUT: %s\n", $!);

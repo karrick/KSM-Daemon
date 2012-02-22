@@ -26,19 +26,19 @@ KSM::Logger::initialize({filename_template => sprintf("%s/log/%s.%%F.log",
 			 level => KSM::Logger::DEBUG});
 			 
 sub greeting {
-    # while(1) {
+    while(1) {
 	foreach (@_) {
 	    print sprintf("Hello, %s!\n", $_);
 	}
 	sleep 10;
-    # }
+    }
 }
 
 sub bar {
     while(1) {
 	print STDERR "bar\n";
-	exit 1 if(int(rand(10)) < 5);
-	sleep 10;
+	# exit 1 if(int(rand(10)) < 5);
+	sleep 20;
     }
 }
 
@@ -48,10 +48,12 @@ KSM::Daemon::daemonize(
       args => ["Abe", "Barry", "Charlie"],
       restart => 30,
       error => 60,
+      signals => ['ALRM'],
      },
      {name => "bar writer",
       function => \&bar,
       restart => 30,
       error => 60,
+      signals => "ALRM",
      },
     ]);
