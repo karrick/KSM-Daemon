@@ -15,47 +15,11 @@ use KSM::Daemon qw(:all);
 
 ########################################
 
-# sub configure_test_child : Tests(setup) {
-#     my ($self) = @_;
-
-#     $self->{child} = KSM::Daemon::verify_child({name => 'test_child', 
-#     						function => sub {1},
-#     						signals => ['USR1']});
-# }
-
 sub terminate_test_child : Tests(teardown) {
     my ($self) = @_;
     if(defined($self->{child}) && defined($self->{child}->{pid})) {
 	kill('TERM', $self->{child}->{pid});
     }
-}
-
-# NOTE: I think I'm going to have to declare an absolute log location
-# in the testing directory, and then monitor the log output.
-
-########################################
-
-sub test_does_not_relay_unregistered_signals_to_children : Tests {
-    # create function that registers sig handler to detect signals
-    # daemonize (but how get pid of daemon without looking at logs?)
-    # send daemon the signal, and verify it does not go to child
-    ok(1);
-}
-
-sub test_relays_registered_signals_to_children : Tests {
-    # create function that registers sig handler to detect signals
-    # daemonize (but how get pid of daemon without looking at logs?)
-    # send daemon the signal, and verify it goes to child
-    ok(1);
-}
-
-sub test_relays_term_and_int_signals_to_children : Tests {
-    # create function that registers sig handler to detect signals, then exists
-    # daemonize (but how get pid of daemon without looking at logs?)
-    # send daemon the signal, and verify it goes to child
-
-    # daemon should exit after all children terminated
-    ok(1);
 }
 
 ########################################
@@ -88,18 +52,14 @@ sub test_relay_signal_to_child_p_true_iff_in_array : Tests {
 ########################################
 # maybe_relay_signal_to_child
 
-sub test_maybe_relay_signal_to_child_does_not_relay : Tests {
+sub test_maybe_relay_signal_to_child_does_not_relay_unrequested_signals : Tests {
     my ($self) = @_;
-
-    local $SIG{USR1} = sub { exit 1 };
-    local $SIG{USR2} = sub { exit 2 };
 
     $self->{child} = KSM::Daemon::verify_child({name => 'test_child', 
     						function => sub {1},
     						signals => ['USR1']});
 
-    is(KSM::Daemon::relay_signal_to_child_p('USR1', $self->{child}), 1);
-    is(KSM::Daemon::relay_signal_to_child_p('USR2', $self->{child}), 0);
+    local $SIG{USR1} = sub { exit 1 };
 
     if(my $pid = fork) {
 	$self->{child}->{pid} = $pid;
@@ -117,18 +77,14 @@ sub test_maybe_relay_signal_to_child_does_not_relay : Tests {
     }
 }
 
-sub test_maybe_relay_signal_to_child_does_relay : Tests {
+sub test_maybe_relay_signal_to_child_relays_requested_signals : Tests {
     my ($self) = @_;
-
-    local $SIG{USR1} = sub { exit 1 };
-    local $SIG{USR2} = sub { exit 2 };
 
     $self->{child} = KSM::Daemon::verify_child({name => 'test_child', 
     						function => sub {1},
     						signals => ['USR1']});
 
-    is(KSM::Daemon::relay_signal_to_child_p('USR1', $self->{child}), 1);
-    is(KSM::Daemon::relay_signal_to_child_p('USR2', $self->{child}), 0);
+    local $SIG{USR1} = sub { exit };
 
     if(my $pid = fork) {
 	$self->{child}->{pid} = $pid;
@@ -137,10 +93,10 @@ sub test_maybe_relay_signal_to_child_does_relay : Tests {
 	KSM::Daemon::maybe_relay_signal_to_child('USR1', $self->{child});
 	waitpid($pid, 0);
 	my $status = ($? >> 8);
-	is($status, 1);
+	is($status, 0);
     } elsif(defined $pid) {
 	sleep 2;
-	exit;
+	exit 1;
     } else {
 	fail "unable to fork";
     }

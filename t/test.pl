@@ -26,7 +26,9 @@ KSM::Logger::initialize({filename_template => sprintf("%s/log/%s.%%F.log",
 			 level => KSM::Logger::DEBUG});
 			 
 sub greeting {
-    local $SIG{ALRM} = sub { info("received ALRM signal") };
+    foreach my $signal (qw(ALRM HUP USR1 USR2)) {
+	$SIG{$signal} = sub { info("received %s signal", $signal) };
+    }
 
     while(1) {
 	foreach (@_) {
@@ -37,7 +39,9 @@ sub greeting {
 }
 
 sub bar {
-    local $SIG{ALRM} = sub { info("received ALRM signal") };
+    foreach my $signal (qw(ALRM HUP USR1 USR2)) {
+	$SIG{$signal} = sub { info("received %s signal", $signal) };
+    }
 
     while(1) {
 	print STDERR "bar\n";
@@ -52,11 +56,12 @@ KSM::Daemon::daemonize(
       args => ["Abe", "Barry", "Charlie"],
       restart => 30,
       error => 60,
-      signals => ['ALRM'],
+      signals => ['USR1'],
      },
      {name => "bar writer",
       function => \&bar,
       restart => 30,
       error => 60,
+      signals => ['USR2'],
      },
     ]);
