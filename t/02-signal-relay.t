@@ -23,33 +23,6 @@ sub terminate_test_child : Tests(teardown) {
 }
 
 ########################################
-# find
-
-sub test_find_can_find_with_eq : Tests {
-    is(KSM::Daemon::find('world', ['hello','world','!'], sub { shift eq shift }), 'world');
-    ok(!KSM::Daemon::find('frobo', ['hello','world','!'], sub { shift eq shift }));
-}
-
-########################################
-# relay_signal_to_child_p
-
-sub test_relay_signal_to_child_p_always_true_for_int_and_term : Tests {
-    is(KSM::Daemon::relay_signal_to_child_p('INT', {}), 1);
-    is(KSM::Daemon::relay_signal_to_child_p('TERM', {}), 1);
-    is(KSM::Daemon::relay_signal_to_child_p('INT', {signals => 'INT'}), 1);
-    is(KSM::Daemon::relay_signal_to_child_p('TERM', {signals => 'TERM'}), 1);
-}
-
-sub test_relay_signal_to_child_p_true_iff_in_array : Tests {
-    is(KSM::Daemon::relay_signal_to_child_p('USR1', {signals => []}), 0);
-    is(KSM::Daemon::relay_signal_to_child_p('USR1', {signals => ['USR2']}), 0);
-
-    is(KSM::Daemon::relay_signal_to_child_p('HUP', {signals => ['HUP','USR1','USR2']}), 1);
-    is(KSM::Daemon::relay_signal_to_child_p('USR1', {signals => ['HUP','USR1','USR2']}), 1);
-    is(KSM::Daemon::relay_signal_to_child_p('USR2', {signals => ['HUP','USR1','USR2']}), 1);
-}
-
-########################################
 # maybe_relay_signal_to_child
 
 sub test_maybe_relay_signal_to_child_does_not_relay_unrequested_signals : Tests {

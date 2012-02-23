@@ -6,6 +6,7 @@ use Carp;
 use File::Basename ();
 use POSIX ":sys_wait_h";
 use KSM::Logger qw(debug verbose info warning error);
+use KSM::Helper qw(:all);
 
 =head1 NAME
 
@@ -13,11 +14,11 @@ KSM::Daemon - The great new KSM::Daemon!
 
 =head1 VERSION
 
-Version 0.03
+Version 0.04
 
 =cut
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 
 =head1 SYNOPSIS
@@ -254,6 +255,7 @@ sub verify_child {
     
     # set defaults for optional arguments
     $child->{signals} = [] if(!defined($child->{signals}));
+    foreach (qw(INT TERM)) {unshift(@{$child->{signals}}, $_) if(!find($_, $child->{signals}, \&equals))}
     $child->{args} = [] if(!defined($child->{args}));
     $child->{restart} = 0 if(!defined($child->{restart}));
     $child->{error} = 0 if(!defined($child->{error}));
@@ -363,39 +365,11 @@ Relays a signal to child iff child requested it.
 
 sub maybe_relay_signal_to_child {
     my ($signal,$child) = @_;
-    if(relay_signal_to_child_p($signal, $child)) {
+    if(find($signal, $child->{signals}, \&equals)) {
 	info('relaying %s signal to child %d (%s)', $signal, $child->{pid}, $child->{name});
 	kill($signal, $child->{pid});
     } else {
 	info('not relaying %s signal to child %d (%s)', $signal, $child->{pid}, $child->{name});
-    }
-}
-
-=head2 relay_signal_to_child_p
-
-Returns 1 if ought to relay a signal to a child, and 0 otherwise.
-
-=cut
-
-sub relay_signal_to_child_p {
-    my ($signal,$child) = @_;
-    (($signal eq 'INT' || $signal eq 'TERM') || find($signal, $child->{signals}, sub {shift eq shift})) ? 1 : 0;
-}
-
-=head2 find
-
-Look for the first argument in the array of the second argument.
-
-=cut
-
-sub find {
-    my ($element,$list,$function) = @_;
-    if(defined($list) && ref($list) eq 'ARRAY') {
-	foreach (@$list) {
-	    return $element if(&{$function}($element, $_));
-	}
-    } else {
-	warning("second argument to find ought to be a list");
     }
 }
 

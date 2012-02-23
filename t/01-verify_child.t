@@ -27,7 +27,7 @@ sub test_verify_child_croaks_when_child_bad : Tests {
 ####################
 # name
 
-sub test_verify_child_checks_name_checks_name : Tests {
+sub test_verify_child_checks_name : Tests {
     eval {KSM::Daemon::verify_child({})};
     like($@, qr/\bchild name should be string\b/);
 
@@ -40,7 +40,7 @@ sub test_verify_child_checks_name_checks_name : Tests {
 ####################
 # function
 
-sub test_verify_child_checks_function_checks_function : Tests {
+sub test_verify_child_checks_function : Tests {
     eval {KSM::Daemon::verify_child({name => 'test'})};
     like($@, qr/\bchild function should be a function\b/);
 
@@ -53,16 +53,23 @@ sub test_verify_child_checks_function_checks_function : Tests {
 ####################
 # signals
 
-sub test_verify_child_checks_function_checks_signals : Tests {
+sub test_verify_child_checks_signals : Tests {
     eval {KSM::Daemon::verify_child({name => 'test', function => sub {1}, signals => '1'})};
     like($@, qr/\bchild signals should be reference to array\b/);
 
     is_deeply(KSM::Daemon::verify_child({name => 'test', function => sub {1}, signals => ['HUP','ALRM']})->{signals},
-	      ['HUP','ALRM']);
+	      ['TERM','INT','HUP','ALRM'], "should add TERM and INT when neither found");
+
+    is_deeply(KSM::Daemon::verify_child({name => 'test', function => sub {1}, signals => ['HUP','ALRM','TERM']})->{signals},
+	      ['INT','HUP','ALRM','TERM'], "should add INT when not found");
+
+    is_deeply(KSM::Daemon::verify_child({name => 'test', function => sub {1}, signals => ['HUP','INT','ALRM']})->{signals},
+	      ['TERM','HUP','INT','ALRM'], "should add TERM when not found");
 }
 
-sub test_verify_child_checks_function_signals_default : Tests {
-    is_deeply(KSM::Daemon::verify_child({name => 'test', function => sub {1}})->{signals}, []);
+sub test_verify_child_signals_default : Tests {
+    is_deeply(KSM::Daemon::verify_child({name => 'test', function => sub {1}})->{signals},
+	      ['TERM','INT'], "should add TERM and INT when no signals requested");
 }
 
 ####################

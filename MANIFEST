@@ -1,7 +1,6 @@
 Changes
 MANIFEST
 MANIFEST.SKIP
-Makefile
 Makefile.PL
 README
 ignore.txt
