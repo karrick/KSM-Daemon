@@ -14,6 +14,51 @@ END { Test::Class->runtests }
 use KSM::Daemon qw(:all);
 
 ########################################
+# HELPERS
+
+sub is_pid_still_alive {
+    my ($pid) = @_;
+    kill(0, $pid);
+}
+
+sub is_command_line_running {
+    my ($command_line) = @_;
+    $command_line = shell_quote($command_line);
+    my $result = `pgrep -f $command_line`;
+    ($result =~ /\d+/ ? 1 : 0);
+}
+
+sub test_is_command_line_running {
+    ok(is_command_line_running(__FILE__));
+    ok(!is_command_line_running("foobarbaz"));
+}
+
+########################################
+
+sub with_captured_log {
+    my $function = shift;
+    # remaining args for function
+
+    with_temp(
+	sub {
+	    my $logfile = shift;
+	    # remaining args for function
+
+	    # KSM::Logger::level(KSM::Logger::DEBUG);
+	    KSM::Logger::filename_template($logfile);
+	    KSM::Logger::reformatter(sub {
+		my ($level,$msg) = @_; 
+		croak("undefined level") unless defined($level);
+		croak("undefined msg") unless defined($msg);
+		sprintf("%s: %s", $level, $msg);
+				     });
+	    eval { &{$function}(@_) };
+	    is($@, '', "should not have reported error");
+	    file_contents($logfile);
+	});
+}
+
+########################################
 
 sub terminate_test_child : Tests(teardown) {
     my ($self) = @_;
