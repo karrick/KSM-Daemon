@@ -1,11 +1,14 @@
 package KSM::Daemon;
 
-use warnings;
+use utf8;
 use strict;
+use warnings;
+
 use Carp;
 use File::Basename ();
 use POSIX ":sys_wait_h";
-use KSM::Logger qw(debug verbose info warning error);
+
+use KSM::Logger qw(:all);
 use KSM::Helper qw(:all);
 
 =head1 NAME
@@ -14,11 +17,11 @@ KSM::Daemon - The great new KSM::Daemon!
 
 =head1 VERSION
 
-Version 0.04
+Version 0.05
 
 =cut
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 
 =head1 SYNOPSIS
@@ -81,7 +84,8 @@ our @EXPORT_OK = (@{$EXPORT_TAGS{'all'}});
 
 =head1 GLOBALS
 
-Some state is maintained by Monitor.
+There are a few module level variables to maintain state of
+KSM::Daemon.
 
 =cut
 
