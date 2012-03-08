@@ -16,8 +16,8 @@ WriteMakefile(
         'Test::More' => 0,
     },
     PREREQ_PM => {
-	'KSM::Logger' => 0.02,
 	'KSM::Helper' => 0.03,
+	'KSM::Logger' => 1.00,
     },
     dist                => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
     clean               => { FILES => 'KSM-Daemon-*' },

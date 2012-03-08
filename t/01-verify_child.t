@@ -55,7 +55,7 @@ sub test_verify_child_checks_function : Tests {
 
 sub test_verify_child_checks_signals : Tests {
     eval {KSM::Daemon::verify_child({name => 'test', function => sub {1}, signals => '1'})};
-    like($@, qr/\bchild signals should be reference to array\b/);
+    like($@, qr|child signals should be reference to array|);
 
     is_deeply(KSM::Daemon::verify_child({name => 'test', function => sub {1}, signals => ['HUP','ALRM']})->{signals},
 	      ['TERM','INT','HUP','ALRM'], "should add TERM and INT when neither found");

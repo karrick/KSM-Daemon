@@ -8,8 +8,8 @@ use Carp;
 use File::Basename ();
 use POSIX ":sys_wait_h";
 
-use KSM::Logger qw(:all);
 use KSM::Helper qw(:all);
+use KSM::Logger qw(:all);
 
 =head1 NAME
 
@@ -17,11 +17,11 @@ KSM::Daemon - The great new KSM::Daemon!
 
 =head1 VERSION
 
-Version 0.05
+Version 0.08
 
 =cut
 
-our $VERSION = '0.05';
+our $VERSION = '0.08';
 
 
 =head1 SYNOPSIS
@@ -77,9 +77,7 @@ be included by importing the :all tag.  For example:
 =cut
 
 use Exporter qw(import);
-our %EXPORT_TAGS = ( 'all' => [qw(
-	daemonize
-)]);
+our %EXPORT_TAGS = ( 'all' => [qw(daemonize)]);
 our @EXPORT_OK = (@{$EXPORT_TAGS{'all'}});
 
 =head1 GLOBALS
@@ -114,18 +112,18 @@ sub REAPER {
 	$status = $?;
 	if(defined($child = $children->{$pid})) {
 	    $child->{status} = $status;
-	    $child->{ended} = POSIX::strftime("%s", gmtime);
+	    $child->{ended} = time;
 	    $child->{duration} = ($child->{ended} - $child->{started});
 	    if($child->{status}) {
-		$child->{delay} = $child->{error_delay};
+		$child->{delay} = $child->{error};
 	    } else {
-		$child->{delay} = $child->{restart_delay};
+		$child->{delay} = $child->{restart};
 	    }
 	    log_termination_of_child($child);
 	    delete $children->{$pid};
             spawn_child($child) if $respawn;
 	} else {
-	    warn sprintf("reaped unknown child: %d", $pid);
+	    warning("reaped unknown child: %d", $pid);
 	    # NOTE: this child's pid is left in $children, and
 	    # relaying signals would attempt to send a non-child the
 	    # signal.
@@ -150,15 +148,21 @@ sub log_termination_of_child {
     my ($child) = @_;
 
     if($child->{status}) {
-	if($child->{status} & 127) {
-	    warning('child %d (%s) received signal %d and terminated status code %d after %g seconds',
-		    $child->{pid}, $child->{name},
-		    $child->{status} & 127, $child->{status} >> 8, $child->{duration});
-	} else {
-	    warning('child %d (%s) terminated status code %d after %g seconds',
-		    $child->{pid}, $child->{name},
-		    $child->{status} >> 8, $child->{duration});
-	}
+	warning("child %d (%s)%s terminated status code %d after %g seconds",
+		$child->{pid}, $child->{name},
+		($child->{status} & 127
+		 ? sprintf(" received signal %d and", $child->{status} & 127)
+		 : ""),
+		$child->{status} >> 8, $child->{duration});
+	# if($child->{status} & 127) {
+	#     warning('child %d (%s) received signal %d and terminated status code %d after %g seconds',
+	# 	    $child->{pid}, $child->{name},
+	# 	    $child->{status} & 127, $child->{status} >> 8, $child->{duration});
+	# } else {
+	#     warning('child %d (%s) terminated status code %d after %g seconds',
+	# 	    $child->{pid}, $child->{name},
+	# 	    $child->{status} >> 8, $child->{duration});
+	# }
     } else {
 	info('child %d (%s) terminated status code 0 after %g seconds',
 	     $child->{pid}, $child->{name}, $child->{status});
@@ -183,7 +187,8 @@ sub daemonize {
     my ($requested_children) = @_;
 
     eval { verify_children($requested_children) };
-    if($@) { croak error("cannot daemonize: %s", $@) }
+    my $status = $@;
+    croak sprintf("cannot daemonize: %s\n", $status) if ($status);
 
     info("DAEMONIZING: %s", File::Basename::basename($0));
     daemonize_process();
@@ -191,11 +196,11 @@ sub daemonize {
 
     my ($stdout_read,$stderr_read);
     pipe($stdout_read, $stdout_write)
-	or die error("unable to pipe: %s", $!);
+	or die error("unable to pipe: %s\n", $!);
     $stdout_write->autoflush(1);
 
     pipe($stderr_read, $stderr_write)
-	or die error("unable to pipe: %s", $!);
+	or die error("unable to pipe: %s\n", $!);
     $stderr_write->autoflush(1);
 
     info("SPAWNING CHILDREN");
@@ -216,7 +221,7 @@ Croaks if error during validation of children hashes.
 sub verify_children {
     my ($children) = @_;
     
-    if(!defined($children) || ref($children) ne 'ARRAY') {
+    if(ref($children) ne 'ARRAY') {
 	croak("children should be reference to array\n");
     } elsif(scalar(@$children) == 0) {
     	croak("children should have at least one child\n");
@@ -224,7 +229,8 @@ sub verify_children {
     	verbose("VERIFYING CHILDREN");
 	map {
     	    eval { verify_child($_) };
-    	    if($@) { croak sprintf("unable to verify children: %s", $@) }
+	    my $status = $@;
+	    croak sprintf("unable to verify children: %s\n", $status) if($status);
 	} @$children;
     }
 }
@@ -241,25 +247,27 @@ sub verify_child {
     my ($child) = @_;
 
     # croak if required arguments missing or invalid
-    if(!defined($child) || (ref($child) ne 'HASH')) {
+    if(ref($child) ne 'HASH') {
 	croak("child should be reference to a hash\n");
     } elsif(!defined($child->{name}) || ref($child->{name}) ne '') {
 	croak("child name should be string\n");
-    } elsif(!defined($child->{function}) || ref($child->{function}) ne 'CODE') {
+    } elsif(ref($child->{function}) ne 'CODE') {
     	croak("child function should be a function\n");
     } elsif(defined($child->{signals}) && ref($child->{signals}) ne 'ARRAY') {
-    	croak sprintf("child signals should be reference to array: %s", ref($child->{signals}));
+    	croak sprintf("child signals should be reference to array: [%s]\n", ref($child->{signals}));
     } elsif(defined($child->{args}) && ref($child->{args}) ne 'ARRAY') {
     	croak("child args should be reference to array\n");
     } elsif(defined($child->{restart}) && ref($child->{restart}) ne '') {
-    	croak sprintf("child restart should be a scalar: %s\n", ref($child->{restart}));
+    	croak sprintf("child restart should be a scalar: [%s]\n", ref($child->{restart}));
     } elsif(defined($child->{error}) && ref($child->{error}) ne '') {
     	croak sprintf("child error should be a scalar: %s\n", ref($child->{error}));
     }
     
     # set defaults for optional arguments
     $child->{signals} = [] if(!defined($child->{signals}));
-    foreach (qw(INT TERM)) {unshift(@{$child->{signals}}, $_) if(!find($_, $child->{signals}, \&equals))}
+    foreach my $signal (qw(INT TERM)) {
+	unshift(@{$child->{signals}}, $signal) if(!any($child->{signals}, sub { shift eq $signal }))
+    }
     $child->{args} = [] if(!defined($child->{args}));
     $child->{restart} = 0 if(!defined($child->{restart}));
     $child->{error} = 0 if(!defined($child->{error}));
@@ -274,15 +282,15 @@ guidance in 'man perlipc'.
 =cut
 
 sub daemonize_process {
-    chdir '/' or die sprintf('Cannot chdir(/): %s', $!);
+    chdir '/' or die sprintf("Cannot chdir(/): %s\n", $!);
 
-    open STDIN,'/dev/null' or die sprintf('Cannot read from /dev/null: %s', $!);
-    open STDOUT,'>/dev/null' or die sprintf('Cannot write to /dev/null: %s', $!);
+    open STDIN,'/dev/null' or die sprintf("Cannot read from /dev/null: %s\n", $!);
+    open STDOUT,'>/dev/null' or die sprintf("Cannot write to /dev/null: %s\n", $!);
 
-    defined(my $pid = fork) or die sprintf('Cannot fork: %s', $!);
+    defined(my $pid = fork) or die sprintf("Cannot fork: %s\n", $!);
     exit if $pid;		# parent exits
-    POSIX::setsid or die sprintf('Cannot start a new session: %s', $!);
-    open STDERR,'>&STDOUT' or die sprintf('Cannot dup stdout: %s', $!);
+    POSIX::setsid or die sprintf("Cannot start a new session: %s\n", $!);
+    open STDERR,'>&STDOUT' or die sprintf("Cannot dup stdout: %s\n", $!);
 }
 
 =head2 setup_signal_handlers
@@ -344,7 +352,7 @@ it will exit itself.  It does not wait for its children to exit.
 sub terminate_program {
     my ($sig) = @_;
     $respawn = 0;
-    info("received %s signal: preparing to shut down.", $sig);
+    info("received %s signal: preparing to shut down", $sig);
     send_signal_to_children('TERM');
 }
 
@@ -369,7 +377,7 @@ Relays a signal to child iff child requested it.
 
 sub maybe_relay_signal_to_child {
     my ($signal,$child) = @_;
-    if(find($signal, $child->{signals}, \&equals)) {
+    if(any($child->{signals}, sub { shift eq $signal })) {
 	info('relaying %s signal to child %d (%s)', $signal, $child->{pid}, $child->{name});
 	kill($signal, $child->{pid});
     } else {
@@ -391,12 +399,9 @@ sub spawn_child {
     local $SIG{ALRM} = sub { verbose("received ALRM") };
 
     if(my $pid = fork) {
-        # parent: TODO: look at foo.pl on penguin to remember how we
-        # don't have race conditions if child executes before this
-        # runs
         $children->{$pid} = $child;
 	$child->{pid} = $pid;
-	$child->{started} = POSIX::strftime("%s", gmtime);
+	$child->{started} = time;
         info('spawned child %d (%s) and signaling to continue', $pid, $child->{name});
 	kill('ALRM',$pid);
     } elsif(defined $pid) {
@@ -412,7 +417,7 @@ sub spawn_child {
             or die error("cannot redirect STDERR: %s\n", $!);
 
         if(exists($child->{delay}) && $child->{delay}) {
-            debug('snooze: %g seconds (%s)', $child->{delay}, $child->{name});
+            verbose('snooze: %g seconds (%s)', $child->{delay}, $child->{name});
             sleep $child->{delay};
             delete $child->{delay};
         }
@@ -421,9 +426,8 @@ sub spawn_child {
 	eval { &{$child->{function}}(@{$child->{args}}) };
 	exit 1 if($@);
         exit($? >> 8);
-
     } else {
-        die sprintf("unable to fork: %s", $!);
+        die error("unable to fork: %s\n", $!);
     }
 }
 
@@ -458,13 +462,13 @@ sub output_monitor {
         if(vec($rout, fileno($stdout_read), 1) == 1) {
             $output = sysread_file_handle($stdout_read);
             foreach (split(/\n/, $output)) {
-                info sprintf("child STDOUT: %s", $_);
+                info("child STDOUT: %s", $_);
             }
         }
         if(vec($rout, fileno($stderr_read), 1) == 1) {
             $output = sysread_file_handle($stderr_read);
             foreach (split(/\n/, $output)) {
-                carp sprintf("child STDERR: %s", $_);
+                warning("child STDERR: %s", $_);
             }
         }
     }

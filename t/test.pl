@@ -30,12 +30,12 @@ sub greeting {
 	$SIG{$signal} = sub { info("received %s signal", $signal) };
     }
 
-    while(1) {
+    # while(1) {
 	foreach (@_) {
 	    print sprintf("Hello, %s!\n", $_);
 	}
 	sleep 10;
-    }
+    # }
 }
 
 sub bar {
