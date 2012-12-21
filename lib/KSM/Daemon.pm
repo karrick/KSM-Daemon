@@ -17,12 +17,11 @@ KSM::Daemon - The great new KSM::Daemon!
 
 =head1 VERSION
 
-Version 0.08
+Version 1.0.0
 
 =cut
 
-our $VERSION = '0.08';
-
+our $VERSION = '1.0.0';
 
 =head1 SYNOPSIS
 
@@ -324,20 +323,6 @@ sub setup_signal_handlers {
     $SIG{TTOU}	= sub { send_signal_to_children('TTOU') };
 }
 
-=head2 reset_signal_handlers
-
-Resets all signal handlers to their default handlers.
-
-Used by newly spawned child processes.
-
-=cut
-
-sub reset_signal_handlers {
-    foreach (qw(HUP INT QUIT ILL ABRT FPE SEGV PIPE ALRM TERM USR1 USR2 CHLD CONT STOP TSTP TTIN TTOU)) {
-	$SIG{$_} = 'DEFAULT';
-    }
-}
-
 =head2 terminate_program
 
 Internal function that acts as the default handler for the TERM signal
@@ -424,7 +409,11 @@ sub spawn_child {
 
         # execute child code, and exit with appropriate status code
 	eval { &{$child->{function}}(@{$child->{args}}) };
-	exit 1 if($@);
+	if(my $status = $@) {
+	    chomp($status);
+	    error("%s\n", $status);
+	    exit 1;
+	}
         exit($? >> 8);
     } else {
         die error("unable to fork: %s\n", $!);
