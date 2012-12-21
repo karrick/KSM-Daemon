@@ -11,6 +11,7 @@ END { Test::Class->runtests }
 
 ########################################
 
+use KSM::Helper qw(:all);
 use KSM::Daemon qw(:all);
 
 ########################################
@@ -41,10 +42,9 @@ sub with_captured_log {
 
     with_temp(
 	sub {
-	    my $logfile = shift;
+	    my (undef,$logfile) = @_;
 	    # remaining args for function
 
-	    # KSM::Logger::level(KSM::Logger::DEBUG);
 	    KSM::Logger::filename_template($logfile);
 	    KSM::Logger::reformatter(sub {
 		my ($level,$msg) = @_; 
@@ -54,7 +54,7 @@ sub with_captured_log {
 				     });
 	    eval { &{$function}(@_) };
 	    is($@, '', "should not have reported error");
-	    file_contents($logfile);
+	    file_read($logfile);
 	});
 }
 
@@ -79,20 +79,24 @@ sub test_maybe_relay_signal_to_child_does_not_relay_unrequested_signals : Tests 
 
     local $SIG{USR1} = sub { exit 1 };
 
-    if(my $pid = fork) {
-	$self->{child}->{pid} = $pid;
+    my $log = with_captured_log(
+	sub {
+	    if(my $pid = fork) {
+		$self->{child}->{pid} = $pid;
 
-	# not subscribed to USR2
-	KSM::Daemon::maybe_relay_signal_to_child('USR2', $self->{child});
-	waitpid($pid, 0);
-	my $status = ($? >> 8);
-	is($status, 0);
-    } elsif(defined $pid) {
-	sleep 2;
-	exit;
-    } else {
-	fail "unable to fork";
-    }
+		# not subscribed to USR2
+		KSM::Daemon::maybe_relay_signal_to_child('USR2', $self->{child});
+		waitpid($pid, 0);
+		my $status = ($? >> 8);
+		is($status, 0);
+	    } elsif(defined $pid) {
+		sleep 2;
+		exit;
+	    } else {
+		fail "unable to fork";
+	    }
+	});
+    like($log, qr|not relaying USR2 signal to child|);
 }
 
 sub test_maybe_relay_signal_to_child_relays_requested_signals : Tests {
