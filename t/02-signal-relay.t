@@ -93,7 +93,7 @@ sub test_maybe_relay_signal_to_child_does_not_relay_unrequested_signals : Tests 
 		sleep 2;
 		exit;
 	    } else {
-		fail "unable to fork";
+		fail "cannot fork";
 	    }
 	});
     like($log, qr|not relaying USR2 signal to child|);
@@ -120,6 +120,6 @@ sub test_maybe_relay_signal_to_child_relays_requested_signals : Tests {
 	sleep 2;
 	exit 1;
     } else {
-	fail "unable to fork";
+	fail "cannot fork";
     }
 }

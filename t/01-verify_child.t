@@ -38,6 +38,17 @@ sub test_verify_child_checks_name : Tests {
 }
 
 ####################
+# user
+
+sub test_verify_child_checks_user : Tests {
+    KSM::Daemon::verify_child({name => 'text', function => sub {1}});
+    KSM::Daemon::verify_child({name => 'text', function => sub {1}, user => 'nobody'});
+
+    eval {KSM::Daemon::verify_child({name => 'text', function => sub {1}, user => []})};
+    like($@, qr/\bchild user should be string\b/);
+}
+
+####################
 # function
 
 sub test_verify_child_checks_function : Tests {
@@ -129,20 +140,20 @@ sub test_verify_children_checks_each_child : Tests {
     eval {KSM::Daemon::verify_children([{name => 'foo'},
 					{name => 'bar', function => sub {1}},
 					{name => 'baz', function => sub {1}}])};
-    like($@, qr/\bunable to verify children\b/);
+    like($@, qr/\bcannot verify children\b/);
     like($@, qr/\bchild function should be\b/);
 
     # middle child
     eval {KSM::Daemon::verify_children([{name => 'foo', function => sub {1}},
 					{function => sub {1}},
 					{name => 'baz', function => sub {1}}])};
-    like($@, qr/\bunable to verify children\b/);
+    like($@, qr/\bcannot verify children\b/);
     like($@, qr/\bchild name should be\b/);
 
     # last child
     eval {KSM::Daemon::verify_children([{name => 'foo', function => sub {1}},
 					{name => 'bar', function => sub {1}},
 					{name => 'baz', function => sub {1}, args => 1}])};
-    like($@, qr/\bunable to verify children\b/);
+    like($@, qr/\bcannot verify children\b/);
     like($@, qr/\bchild args should be\b/);
 }

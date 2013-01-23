@@ -17,11 +17,11 @@ KSM::Daemon - The great new KSM::Daemon!
 
 =head1 VERSION
 
-Version 1.0.0
+Version 1.1.0
 
 =cut
 
-our $VERSION = '1.0.0';
+our $VERSION = '1.1.0';
 
 =head1 SYNOPSIS
 
@@ -31,7 +31,7 @@ KSM::Logger.
 
 Perhaps a little code snippet.
 
-    use KSM::Logger qw(debug verbose info warning error);
+    use KSM::Logger qw(:all);
     use KSM::Daemon;
 
     sub greeting {
@@ -71,7 +71,7 @@ Perhaps a little code snippet.
 Although nothing is exported by default, the most common functions may
 be included by importing the :all tag.  For example:
 
-    use KSM::Helper qw(:all);
+    use KSM::Daemon qw(:all);
 
 =cut
 
@@ -147,21 +147,12 @@ sub log_termination_of_child {
     my ($child) = @_;
 
     if($child->{status}) {
-	warning("child %d (%s)%s terminated status code %d after %g seconds",
-		$child->{pid}, $child->{name},
+	warning("child (%s) (pid %d)%s terminated status code %d after %g seconds",
+		$child->{name}, $child->{pid},
 		($child->{status} & 127
 		 ? sprintf(" received signal %d and", $child->{status} & 127)
 		 : ""),
 		$child->{status} >> 8, $child->{duration});
-	# if($child->{status} & 127) {
-	#     warning('child %d (%s) received signal %d and terminated status code %d after %g seconds',
-	# 	    $child->{pid}, $child->{name},
-	# 	    $child->{status} & 127, $child->{status} >> 8, $child->{duration});
-	# } else {
-	#     warning('child %d (%s) terminated status code %d after %g seconds',
-	# 	    $child->{pid}, $child->{name},
-	# 	    $child->{status} >> 8, $child->{duration});
-	# }
     } else {
 	info('child %d (%s) terminated status code 0 after %g seconds',
 	     $child->{pid}, $child->{name}, $child->{status});
@@ -195,11 +186,11 @@ sub daemonize {
 
     my ($stdout_read,$stderr_read);
     pipe($stdout_read, $stdout_write)
-	or die error("unable to pipe: %s\n", $!);
+	or die error("cannot pipe: %s\n", $!);
     $stdout_write->autoflush(1);
 
     pipe($stderr_read, $stderr_write)
-	or die error("unable to pipe: %s\n", $!);
+	or die error("cannot pipe: %s\n", $!);
     $stderr_write->autoflush(1);
 
     info("SPAWNING CHILDREN");
@@ -229,7 +220,7 @@ sub verify_children {
 	map {
     	    eval { verify_child($_) };
 	    my $status = $@;
-	    croak sprintf("unable to verify children: %s\n", $status) if($status);
+	    croak sprintf("cannot verify children: %s\n", $status) if($status);
 	} @$children;
     }
 }
@@ -250,6 +241,8 @@ sub verify_child {
 	croak("child should be reference to a hash\n");
     } elsif(!defined($child->{name}) || ref($child->{name}) ne '') {
 	croak("child name should be string\n");
+    } elsif(defined($child->{user}) && ref($child->{user}) ne '') {
+	croak("child user should be string\n");
     } elsif(ref($child->{function}) ne 'CODE') {
     	croak("child function should be a function\n");
     } elsif(defined($child->{signals}) && ref($child->{signals}) ne 'ARRAY') {
@@ -381,42 +374,65 @@ standard output and standard error to pipes monitored by the
 sub spawn_child {
     my ($child) = @_;
 
-    local $SIG{ALRM} = sub { verbose("received ALRM") };
+    local $SIG{ALRM} = sub { debug("received ALRM") };
 
     if(my $pid = fork) {
         $children->{$pid} = $child;
 	$child->{pid} = $pid;
 	$child->{started} = time;
-        info('spawned child %d (%s) and signaling to continue', $pid, $child->{name});
+        info('spawned child (%s) (pid %d)', $child->{name}, $pid);
 	kill('ALRM',$pid);
     } elsif(defined $pid) {
-	sleep; # until signal arrives
-	reset_signal_handlers();
+	eval {
+	    sleep; # until signal arrives
+	    reset_signal_handlers();
+	    $children = {};		# child has no children yet
+	    $0 = $child->{name};	# attempt to set name visible by ps(1)
 
-        $children = {};		# child has no children yet
-        $0 = $child->{name};	# attempt to set name visible by ps(1)
+	    if(exists($child->{delay}) && $child->{delay}) {
+		verbose('snooze: %g seconds (%s)', $child->{delay}, $child->{name});
+		sleep $child->{delay};
+		delete $child->{delay};
+	    }
 
-        open(STDOUT, '>&=', $stdout_write)
-            or die error("cannot redirect STDOUT: %s\n", $!);
-        open(STDERR, '>&=', $stderr_write)
-            or die error("cannot redirect STDERR: %s\n", $!);
+	    if($child->{user}) {
+		my ($uid,$gid) = ((getpwnam($child->{user}))[2,3]);
+		if(defined($uid) && defined($gid)) {
+		    # NOTE: must change gid prior to changing uid
+		    if($) != $gid) {
+			$) = $gid;
+			if($) != $gid) {
+			    die sprintf("cannot change gid (%d): [%s]\n", $gid, $!);
+			}
+			verbose("changed gid (%s)\n", $gid);
+		    }
+		    if($> != $uid) {
+			$> = $uid;
+			if($> != $uid) {
+			    die sprintf("cannot change uid (%d): [%s]\n", $uid, $!);;
+			}
+			verbose("changed uid (%s)\n", $uid);
+		    }
+		} else {
+		    die sprintf("unknown user (%s)\n", $child->{user});
+		}
+	    }
+	    
+	    open(STDOUT, '>&=', $stdout_write)
+		or die sprintf("cannot redirect STDOUT: [%s]\n", $!);
+	    open(STDERR, '>&=', $stderr_write)
+		or die sprintf("cannot redirect STDERR: [%s]\n", $!);
 
-        if(exists($child->{delay}) && $child->{delay}) {
-            verbose('snooze: %g seconds (%s)', $child->{delay}, $child->{name});
-            sleep $child->{delay};
-            delete $child->{delay};
-        }
-
-        # execute child code, and exit with appropriate status code
-	eval { &{$child->{function}}(@{$child->{args}}) };
+	    $child->{function}->(@{$child->{args}});
+	    exit;
+	};
 	if(my $status = $@) {
 	    chomp($status);
-	    error("%s\n", $status);
-	    exit 1;
+	    error("child FAILURE: [%s]\n", $status);
+	    exit(1);
 	}
-        exit($? >> 8);
     } else {
-        die error("unable to fork: %s\n", $!);
+        die error("cannot fork: [%s]\n", $!);
     }
 }
 
