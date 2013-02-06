@@ -1,0 +1,76 @@
+
+archdaemon --config foo.json
+
+For each managed process, need to store:
+
+* name
+* exec (array, first item is executable)
+* user (optional)
+* signals (array) (optional)
+* restart-error-p (boolean) (optional)
+* restart-okay-p (boolean) (optional)
+* restart-error-delay (int) (optional)
+* restart-okay-delay (int) (optional)
+* which pipes correspond to each of its stdin, stdout, and stderr
+* pid
+
+Maintain a collection of pipes, and give to newly spawned processes.
+
+Monitor process watches the entire collection of output pipes for
+output. It will ignore data for pipes that have a reader. (NOT SURE
+WHETHER THIS WILL BACK UP, BUT DON'T THINK IT WILL.)
+
+When a process dies, need to reconnect pipes from the parent's collection.
+
+Monitor process should reconfigure itself when it receives SIGHUP.
+
+SIMPLIFICATION
+
+* no hierarchy or process, but a flat array of processes
+* each process hash may specify a label for its stdout and stderr pipes
+* stdin pipes are implicitly connected when one or more other processes send stdout or stderr to that process' name
+* stdout or stderr pipe of "log", or left undefined, will be directed to the universal log file
+
+########################################
+
+retired => { "quz" => 1 }
+
+procs => {
+	 foo => { stdout => "bar", stderr => "log" },
+	 bar => { stdout => "foo", stderr => "log" },
+	 baz => { stdout => "log", stderr => "foo" },
+}
+
+$names = ['foo','bar','baz']
+$name = bar
+$stream = stdout
+$writers = ['foo']
+
+pipes => {
+      log => { stdin => { read => 3, write => 4 } },
+      foo => { stdout => 8, stderr => 4, stdin => { read => 5, write => 6 } },
+      bar => { stdout => 6, stderr => 4, stdin => { read => 7, write => 8 } },
+      baz => { stdout => 4, stderr => 6 },
+}
+
+children => {
+	 1 => { name => "foo", pid => 1, ... },
+	 2 => { name => "bar", pid => 2, ... },
+	 3 => { name => "baz", pid => 3, ... },
+}
+
+########################################
+
+REAPER
+
+* primary purpose is to prevent zombies by reaping processes
+
+* secondary purpose is record its status if we can
+
+reap_expired_children 
+
+* primary purpose is to identify terminated children processes
+
+* secondary purpose is to respawn terminated processes if needed
+
+* tertiary purpose is to log these events

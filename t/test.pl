@@ -9,9 +9,7 @@ use warnings;
 use File::Basename;
 use POSIX;
 use KSM::Logger qw(:all);
-
-use lib File::Basename::dirname(File::Basename::dirname(__FILE__)) . "/lib";
-use KSM::Daemon;
+use KSM::Daemon qw(:proc);
 
 ########################################
 
@@ -20,10 +18,10 @@ KSM::Logger::initialize(
 				  POSIX::getcwd,
 				  File::Basename::basename($0)),
      level => KSM::Logger::DEBUG});
-			 
+
 sub greeting {
-    foreach my $signal (qw(ALRM HUP USR1 USR2)) {
-	$SIG{$signal} = sub { info("received %s signal", $signal) };
+    foreach my $sig (qw(ALRM HUP USR1 USR2)) {
+	$SIG{$sig} = sub { info("received %s signal", $sig) };
     }
 
     while(1) {
@@ -36,8 +34,8 @@ sub greeting {
 }
 
 sub bar {
-    foreach my $signal (qw(ALRM HUP USR1 USR2)) {
-	$SIG{$signal} = sub { info("received %s signal", $signal) };
+    foreach my $sig (qw(ALRM HUP USR1 USR2)) {
+	$SIG{$sig} = sub { info("received %s signal", $sig) };
     }
 
     while(1) {
@@ -47,21 +45,22 @@ sub bar {
     }
 }
 
-KSM::Daemon::daemonize(
-    [{name => "greeter as nobody",
-      function => \&greeting,
-      args => ["Abe", "Barry", "Charlie"],
-      restart => 30,
-      error => 60,
-      signals => ['USR1'],
-      user => 'nobody',
+daemonize(
+    [{
+	name => "greeter as nobody",
+	function => \&greeting,
+	args => ["Abe", "Barry", "Charlie"],
+	restart => 30,
+	error => 60,
+	signals => ['USR1'],
+	# user => 'nobody',
      },
-     {name => "bar writer",
-      function => \&bar,
-      restart => 30,
-      error => 60,
-      signals => ['USR2'],
+     {
+	 name => "bar writer",
+	 function => \&bar,
+	 restart => 30,
+	 error => 60,
+	 signals => ['USR2'],
      },
     ]);
-# not reached
-exit 1;
+die "NOTREACHED";

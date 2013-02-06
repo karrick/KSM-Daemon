@@ -1,0 +1,3 @@
+{
+  "delayed":{"exec":["perl","-e","sleep 3; print STDOUT \"Hello, World!\\n\"; print STDERR \"Goodbye, cruel world!\\n\";"]}
+}

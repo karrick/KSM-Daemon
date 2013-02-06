@@ -12,12 +12,13 @@ WriteMakefile(
       : ()),
     PL_FILES            => {},
     BUILD_REQUIRES => {
+	'Capture::Tiny' => 0.17,
 	'Test::Class' => 0,
         'Test::More' => 0,
     },
     PREREQ_PM => {
-	'KSM::Helper' => '2.0.1',
-	'KSM::Logger' => '1.00',
+	'KSM::Helper' => '2.0.4',
+	'KSM::Logger' => '2.0.0',
     },
     dist                => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
     clean               => { FILES => 'KSM-Daemon-*' },
@@ -27,8 +28,8 @@ sub MY::postamble {
     my $postamble = <<'MAKE_FRAG';
 .PHONY: rpm
 
-rpm:	test dist
-	cpan2rpm --no-sign $(DISTVNAME).tar.$(SUFFIX)
+rpm:	dist
+	cpan2rpm --force --no-sign $(DISTVNAME).tar.$(SUFFIX)
 MAKE_FRAG
 
     return $postamble;

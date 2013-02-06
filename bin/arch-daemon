@@ -1,0 +1,103 @@
+#!/usr/bin/env perl
+
+use utf8;
+use strict;
+use warnings;
+
+use Getopt::Long;
+use Pod::Usage;
+
+use JSON::XS;
+use KSM::Logger qw(:all);
+use KSM::Daemon qw(:all);
+
+########################################
+
+my $config;
+my $help;
+my $man;
+my $level = KSM::Logger::INFO;
+my ($debug,$verbose,$info,$warning,$error);
+
+GetOptions('help|?' => \$help,
+	   'man' => \$man,
+	   'config=s' => \$config,
+
+	   'debug' => \$debug,
+	   'verbose' => \$verbose,
+	   'info' => \$info,
+	   'warning' => \$warning,
+	   'error' => \$error,
+    ) or pod2usage(2);
+pod2usage(1) if $help;
+pod2usage(-exitstatus => 0, -verbose => 2) if $man;
+pod2usage(2) if !defined($config);
+
+########################################
+
+$level = KSM::Logger::ERROR if($error);
+$level = KSM::Logger::WARNING if($warning);
+$level = KSM::Logger::INFO if($info);
+$level = KSM::Logger::VERBOSE if($verbose);
+$level = KSM::Logger::DEBUG if($debug);
+
+########################################
+
+# TODO: move log init to bootstrap, because log params in $config
+KSM::Logger::initialize({level => $level});
+KSM::Daemon::bootstrap($config);
+
+__END__
+
+=head1 NAME
+
+arch-daemon -- manage daemons
+
+=head1 DESCRIPTION
+
+This should be filled out.
+
+=head1 SYNOPSIS
+
+arch-daemon --config daemons.json
+
+
+The configuration file is a JSON file
+
+=head1 OPTIONS
+
+=over 8
+
+=item B<--config>
+
+Specify the name of the configuration file to use.
+
+=item B<--debug>
+
+Set logging level to DEBUG.
+
+=item B<--verbose>
+
+Set logging level to VERBOSE.
+
+=item B<--info>
+
+Set logging level to INFO. This is the default log level.
+
+=item B<--warning>
+
+Set logging level to WARNING.
+
+=item B<--error>
+
+Set logging level to ERROR.
+
+=item B<--help>
+
+Print a brief help message and exit.
+
+=item B<--man>
+
+Prints the manual page and exits.
+
+=back

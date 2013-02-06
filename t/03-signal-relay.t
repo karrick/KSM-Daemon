@@ -19,7 +19,7 @@ use KSM::Daemon qw(:all);
 
 sub is_pid_still_alive {
     my ($pid) = @_;
-    kill(0, $pid);
+    return kill(0, $pid);
 }
 
 sub is_command_line_running {
@@ -36,31 +36,34 @@ sub test_is_command_line_running {
 
 ########################################
 
-sub with_captured_log {
-    my $function = shift;
-    # remaining args for function
+sub with_nothing_out(&) {
+    my ($code) = @_;
+    my ($stdout,$stderr,$result) = capture {
+	$code->();
+    };
+    is($stdout, "");
+    is($stderr, "");
+    $result;
+}
 
-    with_temp(
-	sub {
-	    my (undef,$logfile) = @_;
-	    # remaining args for function
-
-	    KSM::Logger::filename_template($logfile);
-	    KSM::Logger::reformatter(sub {
-		my ($level,$msg) = @_; 
-		croak("undefined level") unless defined($level);
-		croak("undefined msg") unless defined($msg);
-		sprintf("%s: %s", $level, $msg);
-				     });
-	    eval { &{$function}(@_) };
-	    is($@, '', "should not have reported error");
-	    file_read($logfile);
-	});
+sub with_captured_log(&) {
+    my ($function) = @_;
+    with_temp {
+	my (undef,$logfile) = @_;
+	KSM::Logger::initialize({level => KSM::Logger::DEBUG,
+				 filename_template => $logfile,
+				 reformatter => sub {
+				     my ($level,$msg) = @_;
+				     sprintf("%s: %s", $level, $msg);
+				 }});
+	eval { $function->() };
+	file_read($logfile);
+    };
 }
 
 ########################################
 
-sub terminate_test_child : Tests(teardown) {
+sub terminate_test_child : Test(teardown) {
     my ($self) = @_;
     if(defined($self->{child}) && defined($self->{child}->{pid})) {
 	kill('TERM', $self->{child}->{pid});
@@ -73,25 +76,23 @@ sub terminate_test_child : Tests(teardown) {
 sub test_maybe_relay_signal_to_child_does_not_relay_unrequested_signals : Tests {
     my ($self) = @_;
 
-    $self->{child} = KSM::Daemon::verify_child({name => 'test_child', 
-    						function => sub {1},
-    						signals => ['USR1']});
+    $self->{child} = verify_child({name => 'test_child',
+				   function => sub {1},
+				   signals => ['USR1']});
 
-    local $SIG{USR1} = sub { exit 1 };
+    local $SIG{USR1} = sub { POSIX::_exit(1) };
 
     my $log = with_captured_log(
 	sub {
 	    if(my $pid = fork) {
 		$self->{child}->{pid} = $pid;
-
 		# not subscribed to USR2
-		KSM::Daemon::maybe_relay_signal_to_child('USR2', $self->{child});
+		maybe_relay_signal_to_child('USR2', $self->{child});
 		waitpid($pid, 0);
-		my $status = ($? >> 8);
-		is($status, 0);
+		is($?, 0);
 	    } elsif(defined $pid) {
 		sleep 2;
-		exit;
+		POSIX::_exit(0);
 	    } else {
 		fail "cannot fork";
 	    }
@@ -102,23 +103,23 @@ sub test_maybe_relay_signal_to_child_does_not_relay_unrequested_signals : Tests 
 sub test_maybe_relay_signal_to_child_relays_requested_signals : Tests {
     my ($self) = @_;
 
-    $self->{child} = KSM::Daemon::verify_child({name => 'test_child', 
-    						function => sub {1},
-    						signals => ['USR1']});
+    $self->{child} = verify_child({name => 'test_child',
+				   function => sub {1},
+				   signals => ['USR1']});
 
-    local $SIG{USR1} = sub { exit };
+    local $SIG{USR1} = sub { POSIX::_exit(0) };
 
     if(my $pid = fork) {
 	$self->{child}->{pid} = $pid;
 
 	# subscribed to USR1
-	KSM::Daemon::maybe_relay_signal_to_child('USR1', $self->{child});
+	maybe_relay_signal_to_child('USR1', $self->{child});
 	waitpid($pid, 0);
 	my $status = ($? >> 8);
 	is($status, 0);
     } elsif(defined $pid) {
 	sleep 2;
-	exit 1;
+	POSIX::_exit(1);
     } else {
 	fail "cannot fork";
     }

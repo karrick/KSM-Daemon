@@ -1,0 +1,140 @@
+#!/usr/bin/env perl
+
+use utf8;
+use strict;
+use warnings;
+
+use Test::More;
+use Test::Class;
+use base qw(Test::Class);
+END { Test::Class->runtests }
+
+########################################
+
+use Time::HiRes qw(usleep);
+use Capture::Tiny qw(capture);
+use KSM::Helper qw(:all);
+
+########################################
+
+use KSM::Daemon qw(:all);
+
+########################################
+# HELPERS
+
+sub with_nothing_out(&) {
+    my ($code) = @_;
+    my ($stdout,$stderr,$result) = capture {
+	$code->();
+    };
+    is($stdout, "");
+    is($stderr, "");
+    $result;
+}
+
+sub with_captured_log(&) {
+    my ($function) = @_;
+    with_temp {
+	my (undef,$logfile) = @_;
+	KSM::Logger::initialize({level => KSM::Logger::DEBUG,
+				 filename_template => $logfile,
+				 reformatter => sub {
+				     my ($level,$msg) = @_;
+				     sprintf("%s: (pid %d) %s", $level, $$, $msg);
+				 }
+				});
+	eval { $function->() };
+	file_read($logfile);
+    };
+}
+
+########################################
+
+sub reset_globals : Test(setup) {
+    $KSM::Daemon::respawn = 0;
+    $KSM::Daemon::read_vector = '';
+
+    $KSM::Daemon::retired = {};
+    $KSM::Daemon::children = {};
+    $KSM::Daemon::pipes = {};
+}
+
+sub close_pipes : Test(teardown) {
+    my $pipes = $KSM::Daemon::pipes;
+    foreach my $name (sort keys %$pipes) {
+	if(defined($pipes->{$name}->{stdin})) {
+	    close($pipes->{$name}->{stdin}->{read});
+	    close($pipes->{$name}->{stdin}->{write});
+	}
+    }
+}
+
+sub terminate_children : Test(teardown) {
+    my $children = $KSM::Daemon::children;
+    foreach my $pid (keys %$children) {
+	if(kill(0, $pid)) {
+	    diag sprintf("TEARDOWN: sending TERM to %d", $pid);
+	    kill('TERM', $pid);
+	}
+    }
+}
+
+########################################
+
+sub wait_for_child {
+    my ($child) = @_;
+    while(alive_p($child)) {
+	usleep(10000);
+    }
+}
+
+########################################
+# read_expired_pipes
+
+sub test_handles_fast_children{# : Tests {
+    my ($self) = @_;
+    # SETUP
+    $KSM::Daemon::children = {
+	12345 => {
+	    name => "foo",
+	    status => 0,
+	},
+    };
+    foreach my $pid (keys %$KSM::Daemon::children) {
+	diag sprintf("FRAMEWORK: checking if pid %d expired", $pid);
+    }
+    # TEST
+    my $log = with_captured_log {
+	handle_expired_children();
+    };
+    # VERIFY
+    is($log, "FIXME");
+}
+
+sub test_foo{# : Tests {
+    my ($self) = @_;
+    # SETUP
+    $SIG{CHLD} = \&REAPER;
+    my $children = $KSM::Daemon::children;
+    my $child = {
+	name => "true",
+	exec => ['bash','-c','true'],
+	stdout => 'log',
+	stderr => 'log',
+    };
+    create_pipes({$child->{name} => $child});
+    # TEST
+    my $log = with_captured_log {
+	$child = spawn_child($child);
+	# VERIFY
+	my $pid = $child->{pid};
+	# VERIFY -- child gone
+	diag sprintf("FAST: waiting for child pid %d to terminate...", $pid);
+	wait_for_child($children->{$pid});
+    };
+    like($log, qr|spawned child|);
+    like($log, qr|received ALRM|);
+    like($log, qr|exec: \[.*\]|);
+    is($log, "DUMP");
+}
+

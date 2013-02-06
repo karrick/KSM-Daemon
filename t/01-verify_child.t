@@ -11,7 +11,40 @@ END { Test::Class->runtests }
 
 ########################################
 
+use Capture::Tiny qw(capture);
+use KSM::Helper qw(:all);
+
+########################################
+
 use KSM::Daemon qw(:all);
+
+########################################
+# HELPERS
+
+sub with_nothing_out(&) {
+    my ($code) = @_;
+    my ($stdout,$stderr,$result) = capture {
+	$code->();
+    };
+    is($stdout, "");
+    is($stderr, "");
+    $result;
+}
+
+sub with_captured_log(&) {
+    my ($function) = @_;
+    with_temp {
+	my (undef,$logfile) = @_;
+	KSM::Logger::initialize({level => KSM::Logger::DEBUG,
+				 filename_template => $logfile,
+				 reformatter => sub {
+				     my ($level,$msg) = @_;
+				     sprintf("%s: %s", $level, $msg);
+				 }});
+	eval { $function->() };
+	file_read($logfile);
+    };
+}
 
 ########################################
 # verify_child
@@ -90,7 +123,7 @@ sub test_verify_child_checks_function_checks_args : Tests {
     eval {KSM::Daemon::verify_child({name => 'test', function => sub {1}, args => '1'})};
     like($@, qr/\bchild args should be reference to array\b/);
 
-    is_deeply(KSM::Daemon::verify_child({name => 'test', function => sub {1}, args => ["one",2]})->{args}, 
+    is_deeply(KSM::Daemon::verify_child({name => 'test', function => sub {1}, args => ["one",2]})->{args},
 	      ["one",2]);
 }
 
@@ -128,11 +161,11 @@ sub test_verify_child_checks_function_error_default : Tests {
 
 sub test_verify_children_checks_children : Tests {
     eval {KSM::Daemon::verify_children()};
-    like($@, qr/\bchildren should be reference to array\b/);
+    like($@, qr/\bchildren ought be array reference\b/);
     eval {KSM::Daemon::verify_children({})};
-    like($@, qr/\bchildren should be reference to array\b/);
+    like($@, qr/\bchildren ought be array reference\b/);
     eval {KSM::Daemon::verify_children([])};
-    like($@, qr/\bchildren should have at least one child\b/);
+    like($@, qr/\bchildren ought have at least one child\b/);
 }
 
 sub test_verify_children_checks_each_child : Tests {
@@ -156,4 +189,230 @@ sub test_verify_children_checks_each_child : Tests {
 					{name => 'baz', function => sub {1}, args => 1}])};
     like($@, qr/\bcannot verify children\b/);
     like($@, qr/\bchild args should be\b/);
+}
+
+########################################
+# validate_process
+
+sub test_proc_ought_be_hash : Tests {
+    my ($self) = @_;
+    with_nothing_out {
+	my $log = with_captured_log {
+	    eval {
+		validate_process();
+	    };
+	    like($@, qr|ought to be hash|);
+
+	    eval {
+		validate_process("foo");
+	    };
+	    like($@, qr|ought to be hash|);
+	};
+	is($log, "");
+    };
+}
+
+####################
+# name
+
+sub test_proc_ought_have_name : Tests {
+    my ($self) = @_;
+    with_nothing_out {
+	my $log = with_captured_log {
+	    eval {
+		validate_process({});
+	    };
+	    like($@, qr|ought to have name|);
+	};
+	is($log, "");
+    };
+}
+
+sub test_name_ought_be_scalar : Tests {
+    my ($self) = @_;
+    with_nothing_out {
+	my $log = with_captured_log {
+	    eval {
+		validate_process({name => ['ignore']});
+	    };
+	    like($@, qr|name ought to be scalar|);
+	};
+	is($log, "");
+    };
+}
+
+sub test_name_ought_not_be_log : Tests {
+    my ($self) = @_;
+    with_nothing_out {
+	my $log = with_captured_log {
+	    eval {
+		validate_process({ name => "log" });
+	    };
+	    like($@, qr|name ought not be log|);
+	};
+	is($log, "");
+    };
+}
+
+####################
+# exec
+
+sub test_proc_ought_have_exec : Tests {
+    my ($self) = @_;
+    with_nothing_out {
+	my $log = with_captured_log {
+	    eval {
+		validate_process({name => "foo"});
+	    };
+	    like($@, qr|ought to have exec|);
+	};
+	is($log, "");
+    };
+}
+
+sub test_exec_ought_be_array : Tests {
+    my ($self) = @_;
+    with_nothing_out {
+	my $log = with_captured_log {
+	    eval {
+		validate_process({name => "foo", exec => "not array"});
+	    };
+	    like($@, qr|exec ought to be non-empty array|);
+	};
+	is($log, "");
+    };
+}
+
+sub test_exec_ought_not_be_empty : Tests {
+    my ($self) = @_;
+    with_nothing_out {
+	my $log = with_captured_log {
+	    eval {
+		validate_process({name => "foo", exec => []});
+	    };
+	    like($@, qr|exec ought to be non-empty array|);
+	};
+    };
+}
+
+########################################
+# stdout
+
+sub test_does_not_die_if_stdout_matches_log : Tests {
+    my ($self) = @_;
+
+    with_nothing_out {
+	my $log = with_captured_log {
+	    eval {
+		validate_process(
+		    {
+			name => "foo",
+			exec => ['ignore'],
+			stdout => "log",
+			stderr => "log",
+		    },
+		    ['foo','baz']);
+	    };
+	    unlike($@, qr|stdout must match a process name|);
+	};
+    };
+}
+
+sub test_die_if_stdout_matches_own_name : Tests {
+    my ($self) = @_;
+    with_nothing_out {
+	my $log = with_captured_log {
+	    eval {
+		validate_process(
+		    {
+			name => "foo",
+			exec => ['ignore'],
+			stdout => "foo",
+			stderr => "log",
+		    },
+		    ['foo']);
+	    };
+	    like($@, qr|stdout ought not match own process name|);
+	};
+    };
+}
+
+sub test_die_if_stdout_does_not_match_any_name : Tests {
+    my ($self) = @_;
+    with_nothing_out {
+	my $log = with_captured_log {
+	    eval {
+		validate_process(
+		    {
+			name => "foo",
+			exec => ['ignore'],
+			stdout => "bar",
+			stderr => "log",
+		    },
+		    ['foo','baz']);
+	    };
+	    like($@, qr|stdout must match a process name|);
+	};
+    };
+}
+
+########################################
+# stderr
+
+sub test_does_not_die_if_stderr_matches_log : Tests {
+    my ($self) = @_;
+
+    with_nothing_out {
+	my $log = with_captured_log {
+	    eval {
+		validate_process(
+		    {
+			name => "foo",
+			exec => ['ignore'],
+			stderr => "log",
+			stdout => 'log',
+		    },
+		    ['foo','baz']);
+	    };
+	    unlike($@, qr|stderr must match a process name|);
+	};
+    };
+}
+
+sub test_die_if_stderr_matches_own_name : Tests {
+    my ($self) = @_;
+    with_nothing_out {
+	my $log = with_captured_log {
+	    eval {
+		validate_process(
+		    {
+			name => "foo",
+			exec => ['ignore'],
+			stderr => "foo",
+			stdout => 'log',
+		    },
+		    ['foo']);
+	    };
+	    like($@, qr|stderr ought not match own process name|);
+	};
+    };
+}
+
+sub test_die_if_stderr_does_not_match_any_name : Tests {
+    my ($self) = @_;
+    with_nothing_out {
+	my $log = with_captured_log {
+	    eval {
+		validate_process(
+		    {
+			name => "foo",
+			exec => ['ignore'],
+			stderr => "bar",
+			stdout => 'log',
+		    },
+		    ['foo','baz']);
+	    };
+	    like($@, qr|stderr must match a process name|);
+	};
+    };
 }
