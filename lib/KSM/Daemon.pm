@@ -19,11 +19,11 @@ KSM::Daemon - The great new KSM::Daemon!
 
 =head1 VERSION
 
-Version 1.1.1
+Version 1.1.2
 
 =cut
 
-our $VERSION = '1.1.1';
+our $VERSION = '1.1.2';
 
 =head1 SYNOPSIS
 
@@ -593,26 +593,34 @@ sub monitor_output {
 
     info("MONITORING OUTPUT");
 
+    my $error_message;
     my $stdout_handler = sub { my $line = shift; chomp($line); info("CHILD: [%s]", $line) };
     my $stdout_fd = fileno($read_fh);
     my ($rin,$stdout_buf) = ("","");
     vec($rin, $stdout_fd, 1) = 1;
 
-    while(1) {
-	handle_expired_children();
-	last if(!scalar keys %$children);
+    do {
+	eval {
+	    handle_expired_children();
 
-	debug("select");
-	my $nfound = select(my $rout=$rin, undef, undef, undef);
-	if(($nfound == -1) && ($!{EINTR} == 0)) {
-	    # die if error was something other than EINTR
-	    die sprintf("cannot select: [%s]\n", $!);
-	} elsif($nfound > 0) {
-	    if(vec($rout, $stdout_fd, 1) == 1) {
-		$stdout_buf = sysread_spooler($read_fh, $stdout_buf, $stdout_handler);
+	    my $nfound = select(my $rout=$rin, undef, undef, undef);
+	    if(($nfound == -1) && ($!{EINTR} == 0)) {
+		# die if error was something other than EINTR
+		die sprintf("cannot select: [%s]\n", $!);
+	    } elsif($nfound > 0) {
+		if(vec($rout, $stdout_fd, 1) == 1) {
+		    $stdout_buf = sysread_spooler($read_fh, $stdout_buf, $stdout_handler);
+		}
 	    }
+	};
+	if($@) {
+	    chomp($error_message = $@);
 	}
+    } while(scalar keys %$children);
+    if($error_message && $error_message ne 'eof') {
+	die sprintf("%s\n", $error_message);
     }
+
     info("all children terminated; exiting");
     exit;
 }
