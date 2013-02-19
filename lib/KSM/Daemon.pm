@@ -19,11 +19,11 @@ KSM::Daemon - The great new KSM::Daemon!
 
 =head1 VERSION
 
-Version 1.1.2
+Version 1.1.3
 
 =cut
 
-our $VERSION = '1.1.2';
+our $VERSION = '1.1.3';
 
 =head1 SYNOPSIS
 
@@ -115,6 +115,8 @@ KSM::Daemon.
 =cut
 
 use constant QUICK_RESPAWN_DELAY => 1;
+use constant MONITOR_SELECT_TIMEOUT => 5;
+
 our $respawn = 1;
 
 our $retired = {};		# names of processes to retire
@@ -589,29 +591,27 @@ mix buffered and unbuffered I/O.
 =cut
 
 sub monitor_output {
-    my ($read_fh) = @_;
+    my ($file_handle) = @_;
 
     info("MONITORING OUTPUT");
 
-    my $error_message;
-    my $stdout_handler = sub { my $line = shift; chomp($line); info("CHILD: [%s]", $line) };
-    my $stdout_fd = fileno($read_fh);
-    my ($rin,$stdout_buf) = ("","");
-    vec($rin, $stdout_fd, 1) = 1;
+    my ($error_message,$rin,$buffer) = ("","","");
+    my $output_handler = sub { my ($line) = @_; chomp($line); info("CHILD: [%s]", $line) };
+    my $file_descriptor = fileno($file_handle);
+    vec($rin, $file_descriptor, 1) = 1;
 
     do {
 	eval {
-	    handle_expired_children();
-
-	    my $nfound = select(my $rout=$rin, undef, undef, undef);
+	    my $nfound = select(my $rout=$rin, undef, undef, MONITOR_SELECT_TIMEOUT);
 	    if(($nfound == -1) && ($!{EINTR} == 0)) {
 		# die if error was something other than EINTR
 		die sprintf("cannot select: [%s]\n", $!);
 	    } elsif($nfound > 0) {
-		if(vec($rout, $stdout_fd, 1) == 1) {
-		    $stdout_buf = sysread_spooler($read_fh, $stdout_buf, $stdout_handler);
+		if(vec($rout, $file_descriptor, 1) == 1) {
+		    $buffer = sysread_spooler($file_handle, $buffer, $output_handler);
 		}
 	    }
+	    handle_expired_children();
 	};
 	if($@) {
 	    chomp($error_message = $@);
@@ -646,7 +646,7 @@ sub handle_expired_children {
 	    my $child = $children->{$pid};
 	    delete $children->{$pid};
 
-	    my $name = $child->{name} || "fast-process-that-died-before-monitor-setup-complete";
+	    my $name = $child->{name} || "child-process-that-died-before-parent-setup-complete";
 	    verbose("expired child: [%s]", $name);
 
 	    my ($status,$signal);
