@@ -19,11 +19,11 @@ KSM::Daemon - The great new KSM::Daemon!
 
 =head1 VERSION
 
-Version 1.1.3
+Version 1.1.4
 
 =cut
 
-our $VERSION = '1.1.3';
+our $VERSION = '1.1.4';
 
 =head1 SYNOPSIS
 
@@ -642,7 +642,7 @@ sub handle_expired_children {
     my $time = time();
     foreach my $pid (keys %$children) {
 	debug("checking if child terminated: pid %d", $pid);
-	if(!alive_p($children->{$pid})) {
+	if(!alive_p($children->{$pid}->{pid})) {
 	    my $child = $children->{$pid};
 	    delete $children->{$pid};
 
@@ -709,8 +709,8 @@ Returns truthy value iff process is still alive.
 =cut
 
 sub alive_p {
-    my ($proc) = @_;
-    return (exists($proc->{pid}) ? kill(0, $proc->{pid}) : 0);
+    my ($pid) = @_;
+    return (defined($pid) ? kill(0, $pid) : 0);
 }
 
 =head2 validate_process

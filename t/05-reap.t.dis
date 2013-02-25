@@ -83,7 +83,7 @@ sub terminate_children : Test(teardown) {
 
 sub wait_for_child {
     my ($child) = @_;
-    while(alive_p($child)) {
+    while(alive_p($child->{pid})) {
 	usleep(10000);
     }
 }

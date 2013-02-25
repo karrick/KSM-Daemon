@@ -82,7 +82,7 @@ sub terminate_children : Test(teardown) {
 
 sub wait_for_child {
     my ($child) = @_;
-    while(alive_p($child)) {
+    while(alive_p($child->{pid})) {
 	usleep(10000);
     }
 }
@@ -91,8 +91,8 @@ sub wait_for_child {
 # alive_p
 
 sub test_alive_p : Tests {
-    ok(alive_p({pid => $$}));
-    ok(!alive_p({}));
+    ok(alive_p($$));
+    ok(!alive_p());
 }
 
 ########################################
@@ -272,7 +272,7 @@ sub test_all_stuff{# : Tests {
 	is(ref($child), 'HASH');
 	my $pid = $child->{pid};
 	ok(defined($pid));
-	ok(alive_p($child));
+	ok(alive_p($child->{pid}));
 
 	ok(defined($child->{started}));
 	ok($child->{started} >= $before);
