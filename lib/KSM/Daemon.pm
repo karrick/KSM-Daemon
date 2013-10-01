@@ -603,13 +603,19 @@ sub monitor_output {
     do {
 	eval {
 	    my $nfound = select(my $rout=$rin, undef, undef, MONITOR_SELECT_TIMEOUT);
-	    if(($nfound == -1) && ($!{EINTR} == 0)) {
-		# die if error was something other than EINTR
-		die sprintf("cannot select: [%s]\n", $!);
+            if($nfound == -1) {
+                if($!{EINTR} == 0) {
+                    # ignore
+                } elsif($!{NOTTY} == 0) {
+                    # ignore but log
+                    verbose("cannot select (monitored process terminated?): [%s]\n", $!);
+                } else {
+                    die("cannot select: [%s]\n", $!);
+                }
 	    } elsif($nfound > 0) {
-		if(vec($rout, $file_descriptor, 1) == 1) {
-		    $buffer = sysread_spooler($file_handle, $buffer, $output_handler);
-		}
+                if(vec($rout, $file_descriptor, 1) == 1) {
+                    $buffer = sysread_spooler($file_handle, $buffer, $output_handler);
+                }
 	    }
 	    handle_expired_children();
 	};
