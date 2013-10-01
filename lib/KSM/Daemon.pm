@@ -606,7 +606,7 @@ sub monitor_output {
             if($nfound == -1) {
                 if($!{EINTR} == 0) {
                     # ignore
-                } elsif($!{NOTTY} == 0) {
+                } elsif($!{ENOTTY} == 0) {
                     # ignore but log
                     verbose("cannot select (monitored process terminated?): [%s]\n", $!);
                 } else {
