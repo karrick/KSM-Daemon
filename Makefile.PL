@@ -11,6 +11,9 @@ WriteMakefile(
       ? ('LICENSE'=> 'perl')
       : ()),
     PL_FILES            => {},
+    EXE_FILES => [
+        'bin/arch-daemon',
+    ],
     BUILD_REQUIRES => {
 	'Capture::Tiny' => 0.17,
 	'Test::Class' => 0,
