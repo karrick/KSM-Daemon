@@ -20,6 +20,7 @@ WriteMakefile(
         'Test::More' => 0,
     },
     PREREQ_PM => {
+	'JSON::XS' => '3.01',
 	'KSM::Helper' => '2.0.4',
 	'KSM::Logger' => '2.0.0',
     },
